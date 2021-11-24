@@ -47,6 +47,13 @@ async def _help(ctx):
                 \t_help: List available commands \
                 ")
 @bot.command(pass_context=True)
+async def runSecretSanta(ctx, userList : list): #Take in all users and do all the back end stuff
+    userList = [] # Need to parse parameter list into users
+    ID = await ctx.invoke(bot.get_command("createAndPopulate"), userList=userList)
+    await ctx.invoke(bot.get_command("generatePairingsForPool"), index=ID)
+    await ctx.invoke(bot.get_command("reportPairingsToUsers"), index=ID)
+    
+@bot.command(pass_context=True)
 async def createNewPool(ctx):
     returnPool = len(pools)
     pools[returnPool] = list()
@@ -54,15 +61,20 @@ async def createNewPool(ctx):
         print(f"Created new pool with ID {returnPool}")
     if config["output"] == "channel" or config["output"] == "both":
         await ctx.channel.send(f"Created new pool with ID {returnPool}")
-    
-    
-"""
-@bot.command(pass_context=True)
-async def populatePool(ctx, index, *args):
+    return returnPool
+      
 
 @bot.command(pass_context=True)
-async def createAndPopulate(ctx, *args):
-"""
+async def populatePool(ctx, index, userList: list):
+    for user in userList:
+        await ctx.invoke(bot.get_command("addUserToPool"), index = ID, user = user)
+    
+@bot.command(pass_context=True)
+async def createAndPopulate(ctx, userList: list):
+    ID = await ctx.invoke(bot.get_command("createNewPool"))
+    await ctx.invoke(bot.get_command("populatePool"), index=ID,userList=userList)
+    return ID
+    
     
 @bot.command(pass_context=True)
 async def deletePool(ctx, index):
