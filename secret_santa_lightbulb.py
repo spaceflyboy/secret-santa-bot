@@ -63,16 +63,20 @@ async def recurse(gidx: int, givers: list, already_receiving: list, local_pairs:
     
     return False
     
+async def shuffle_blacklists(index: int) -> None:
+    for pool_member in pools[index]:
+        random.shuffle(user_blacklist_maps[int(index)][pool_member])
 
 async def generate_pairings_for_pool_backend(index: int) -> bool:
     local_pairs = {}
-    cur_pool = pools[int(index)]
+    cur_pool = pools[index]
+    shuffle_blacklists(index)
     
     check = recurse(0, random.shuffle(cur_pool), [], local_pairs)
     if not check:
         return check
     else:
-        pairings[int(index)] = local_pairs
+        pairings[index] = local_pairs
         return True
         
     """
