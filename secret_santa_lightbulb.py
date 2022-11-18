@@ -9,10 +9,12 @@ pools = {}
 pairings = {}
 
 user_maps = {} # Map pool id to a map of user id to user objects (complicated but necessary, I think)
+#user_maps_inverse = {}
+user_blacklist_maps = {}
 
 
 #output options: console, discord channel where command sent, both
-config = {"output": "both"}
+config = {"output": "console"}
 
 @bot.command
 @lightbulb.command("view-config", "View the config data structure")
@@ -36,26 +38,70 @@ async def set_output(ctx: lightbulb.Context, output: str) -> None:
     else:
         await ctx.respond(f"setOutput failed because the output parameter provided {out} did not match one of the valid options: \"channel\", \"console\", \"both\"")
       
-@bot.command
-@lightbulb.option("userlist", "List of users to run the secret santa program on", str)
-@lightbulb.command("run-secret-santa", "Run the secret santa pairing generator for provided user list", pass_options=True)
-@lightbulb.implements(lightbulb.SlashCommand)
-async def run_secret_santa(ctx: lightbulb.Context, userlist: str) -> None: #Take in all users and do all the back end stuff
-    #userlist = [] # Need to parse parameter list into users
-    userlist_processed = await process_user_list(userlist)
-    ID = await create_and_populate_backend(userlist_processed)
-    await generate_pairings_for_pool_backend(ID)
-    await report_pairings_to_users_backend(ID)
-
 async def create_and_populate_backend(userlist: list) -> int:
     ID = await create_new_pool_backend()
     await populate_pool_backend(ID, userlist)
     return ID
 
-async def generate_pairings_for_pool_backend(index: int) -> None:
+async def recurse(gidx: int, givers: list, already_receiving: list, local_pairs: dict) -> bool:
+    giver = givers[gidx]
+    choices = [i for i in givers if i != giver and i not in already_receiving and i not in user_blacklist_maps[int(idex)][giver]]
+    if not choices:
+        return False
+    
+    for choice in choices:
+        already_receiving.append(choice)
+        local_pairs[giver] = choice
+        
+        check = recurse(gidx+1, givers, already_receiving, local_pairs)
+        
+        if check:
+            return True
+        else:
+            del local_pairs[giver]
+            already_receiving.pop()
+    
+    return False
+    
+
+async def generate_pairings_for_pool_backend(index: int) -> bool:
+    local_pairs = {}
+    cur_pool = pools[int(index)]
+    
+    check = recurse(0, random.shuffle(cur_pool), [], local_pairs)
+    if not check:
+        return check
+    else:
+        pairings[int(index)] = local_pairs
+        return True
+        
+    """
+    done = False
+    while not done:
+        local_pairs = {}
+        already_receiving = {}
+        for giver in cur_pool:
+            choices = [i for i in cur_pool if i != giver and i not in already_receiving and i not in user_blacklist_maps[int(index)][giver]]
+            if not choices:
+                break
+            #print(f"giver = {giver}")
+            #print(f"already_receiving = {already_receiving.keys()}")
+            #print(f"giver's blacklist = {user_blacklist_maps[int(index)][giver]}")
+            #print(f"choices = {choices}")
+            receiver = random.choice(choices)
+            local_pairs[giver] = receiver
+            already_receiving[receiver] = 1
+        
+        done = True
+    
+    pairings[int(index)] = local_pairs
+    
+    """
+    """
     local_pairs = {}
     
     cur_pool = pools[int(index)]
+    #random.seed()
     random.shuffle(cur_pool)
     
     temp_pool = cur_pool.copy()
@@ -77,35 +123,102 @@ async def generate_pairings_for_pool_backend(index: int) -> None:
     
     local_pairs[giver] = cur_pool[0]
     pairings[int(index)] = local_pairs
+    """
 
 async def create_new_pool_backend() -> int:
     returnPool = len(pools)
     pools[returnPool] = list()
-    user_maps[returnPool] = dict()
+    user_blacklist_maps[returnPool] = dict()
+    #user_maps[returnPool] = dict()
+    #user_maps_inverse[returnPool] = dict()
     return returnPool
 
 async def add_user_to_pool_backend(index: int, user) -> None:
     cur_pool = pools[int(index)].copy()
-    newID = len(cur_pool)
-    user_maps[int(index)][newID] = user
-    cur_pool.append(newID)
+    #newID = len(cur_pool)
+    #user_maps[int(index)][newID] = user
+    cur_pool.append(user)
     pools[int(index)] = cur_pool
+    user_blacklist_maps[int(index)][user] = []
 
 async def populate_pool_backend(index: int, userlist: list) -> None:
     for user in userlist:
         await add_user_to_pool_backend(index, user)
         
-async def process_user_list(ctx: lightbulb.Context, userlist: str) -> list[hikari.User]:
-    result = []
-    for user_id in userlist.split(" "):
-        memberObject = await lightbulb.converters.special.MemberConverter(ctx).convert(user_id)
-        result.append(memberObject)
-    return result
+async def process_user_list(userlist: str) -> list[hikari.Member]:
+    return userlist.split(" ")
+    
+async def to_member(ctx: lightbulb.Context, user: str) -> hikari.Member:
+    return_val = await lightbulb.converters.special.MemberConverter(ctx).convert(user)
+    return return_val
 
-#async def report_pairings_to_users_backend(index: int):
+async def report_pairings_to_users_backend(ctx: lightbulb.Context, index: int):
+
+    #cur_pool = pools[index]
+    local_pairs = pairings[int(index)]
+    
+    for user_id in local_pairs.keys():
+        print(f"user_id = {user_id}")
+        print(f"receiver_id = {local_pairs[user_id]}")
+        #user = user_maps[int(index)][user_id]
+        
+        user = await to_member(ctx, user_id)
+        receiver = await to_member(ctx, local_pairs[user_id])
+        
+        #print(f"local_pairs = {local_pairs}")
+        #print(f"user = {user}")
+        #print(f"receiver_id = {local_pairs[user_id]}")
+        #print(f"user_maps[{index}] = {user_maps[index]}")
+        #report local_pairs[user] to each user
+        
+        await user.send(f"You are secret santa for {receiver}")
 
 # Make sure that the userlist provided only contains actual user objects
 # async def user_list_sanity_check(userlist: list):
+
+@bot.command()
+@lightbulb.option("index", "Pool index for blacklisting", int)
+@lightbulb.option("user1", "User to whose blacklist user2 will be added", str)
+@lightbulb.option("user2", "User to add to user1's blacklist", str)
+@lightbulb.command("add-user-to-blacklist", "Prevent user1 from getting user2 as a \"receiver\" in generation later on", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def add_user_to_blacklist(ctx: lightbulb.Context, index: int, user1: str, user2: str) -> None:
+    user_blacklist_maps[int(index)][user1].append(user2)
+    
+@bot.command()
+@lightbulb.option("index", "Pool index for blacklisting", int)
+@lightbulb.option("user1", "User whose blacklist is being set", str)
+@lightbulb.option("userlist", "List of users to add to user1's blacklist", str)
+@lightbulb.command("set-user-blacklist", "Set user's blacklist", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def set_user_blacklist(ctx: lightbulb.Context, index: int, user1: str, userlist: str) -> None:
+    userlist_processed = await process_user_list(userlist)
+    user_blacklist_maps[int(index)][user1] = userlist_processed
+
+@bot.command()
+@lightbulb.option("index", "Pool index for blacklisting", int)
+@lightbulb.option("user1", "User whose blacklist you want to view", str)
+@lightbulb.command("view-blacklist", "View user's blacklist", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def view_blacklist(ctx: lightbulb.Context, index: int, user1: str) -> None:
+
+    if config["output"] == "console" or config["output"] == "both":
+        print(f"{user1}'s blacklist: {user_blacklist_maps[int(index)][user1]}")
+    if config["output"] == "channel" or config["output"] == "both":
+        await ctx.respond(f"{user1}'s blacklist: {user_blacklist_maps[int(index)][user1]}")
+        
+@bot.command()
+@lightbulb.option("index", "Pool index for blacklisting", int)
+@lightbulb.command("view-all-blacklists", "View all blacklists for a pool", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def view_all_blacklists(ctx: lightbulb.Context, index: int) -> None:
+
+    if config["output"] == "console" or config["output"] == "both":
+        for key in user_blacklist_maps[int(index)]:
+            print(f"{key}'s blacklist: {user_blacklist_maps[int(index)][key]}")
+    if config["output"] == "channel" or config["output"] == "both":
+        for key in user_blacklist_maps[int(index)]:
+            await ctx.respond(f"{key}'s blacklist: {user_blacklist_maps[int(index)][key]}")
 
 @bot.command
 @lightbulb.command("create-new-pool", "Create a new pool for pairing generation later on")
@@ -116,6 +229,18 @@ async def create_new_pool(ctx: lightbulb.Context) -> None:
         print(f"Created new pool with ID {returnPool}")
     if config["output"] == "channel" or config["output"] == "both":
         await ctx.respond(f"Created new pool with ID {returnPool}")
+        
+@bot.command
+@lightbulb.option("user1", "User 1", hikari.Member)
+@lightbulb.option("user2", "User 2", hikari.Member)
+@lightbulb.command("equality-test", "Test equality of member objects", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def equality_test(ctx: lightbulb.Context, user1: hikari.Member, user2: hikari.Member) -> None:
+    check = user1 == user2
+    if check:
+        await ctx.respond("Users are the same")
+    else:
+        await ctx.respond("Users are not the same")
 
 @bot.command
 @lightbulb.option("index", "Pool index for population operation", int)
@@ -128,7 +253,7 @@ async def populate_pool(ctx: lightbulb.Context, index: int, userlist: str) -> No
         await ctx.respond("Command populate-pool failed due to an invalid index.")
         return
     
-    userlist_processed = await process_user_list(ctx, userlist)
+    userlist_processed = await process_user_list(userlist)
     await populate_pool_backend(int, userlist_processed)
     
     
@@ -137,7 +262,7 @@ async def populate_pool(ctx: lightbulb.Context, index: int, userlist: str) -> No
 @lightbulb.command("create-and-populate", "Wrapper command for create-new-pool and populate-pool together", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand)
 async def create_and_populate(ctx: lightbulb.Context, userlist: str) -> int:
-    userlist_processed = await process_user_list(ctx, userlist)
+    userlist_processed = await process_user_list(userlist)
     ID = await create_and_populate_backend(userlist_processed)
     await ctx.respond(f"Created and populated pool {ID}")
     #return ID
@@ -155,16 +280,17 @@ async def delete_pool(ctx: lightbulb.Context, index: int) -> None:
 
 @bot.command
 @lightbulb.option("index", "Index of the pool to add user to", int)
-@lightbulb.option("user", "User to add to pool", hikari.User)
+@lightbulb.option("user", "User to add to pool", hikari.Member)
 @lightbulb.command("add-user-to-pool", "Add a user to a pool", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand)
-async def add_user_to_pool(ctx: lightbulb.Context, index: int, user: hikari.User) -> None:
+async def add_user_to_pool(ctx: lightbulb.Context, index: int, user: hikari.Member) -> None:
     if int(index) not in pools:
         await ctx.respond("add-user-to-pool failed due to an invalid index.")
         return
     
     await add_user_to_pool_backend(index, user)
 
+"""
 @bot.command
 @lightbulb.option("index", "Index of the pool to view the mapping of", int)
 @lightbulb.command("view-pool-mapping", "View the mapping of indices to users for a pool", pass_options=True)
@@ -178,6 +304,7 @@ async def view_pool_mapping(ctx: lightbulb.Context, index: int) -> None:
         print(f"Viewing pool mapping #{index}: {user_maps[int(index)]}")
     if config["output"] == "channel" or config["output"] == "both":
         await ctx.respond(f"Viewing pool #{index}: {user_maps[int(index)]}")
+"""
 
 @bot.command
 @lightbulb.option("index", "Index of the pool to view", int)
@@ -243,26 +370,20 @@ async def report_pairings_to_users(ctx: lightbulb.Context, index: int) -> None:
     if int(index) not in pairings:
         await ctx.respond("reportPairingsToUsers failed due to an invalid index")
         return
-        
-    #cur_pool = pools[index]
-    local_pairs = pairings[int(index)]
-    #converter = MemberConverter()
-   
-    for user_id in local_pairs.keys():
-        print(f"user_id = {user_id}")
-        print(f"receiver_id = {local_pairs[user_id]}")
-        user = user_maps[int(index)][user_id]
-        
-        #print(f"local_pairs = {local_pairs}")
-        #print(f"user = {user}")
-        #print(f"receiver_id = {local_pairs[user_id]}")
-        #print(f"user_maps[{index}] = {user_maps[index]}")
-        #report local_pairs[user] to each user
-        #giver = await converter.convert(ctx, user)
-        #receiver = await converter.convert(ctx, local_pairs[user])
-        #channel = await giver.create_dm()
-        await user.send(f"You are secret santa for {user_maps[int(index)][local_pairs[user_id]]}")
-        
+    
+    await report_pairings_to_users_backend(ctx, index)
+
+@bot.command
+@lightbulb.option("userlist", "List of users to run the secret santa program on", str)
+@lightbulb.command("run-secret-santa", "Run the secret santa pairing generator for provided user list", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def run_secret_santa(ctx: lightbulb.Context, userlist: str) -> None: #Take in all users and do all the back end stuff
+    #userlist = [] # Need to parse parameter list into users
+    userlist_processed = await process_user_list(userlist)
+    ID = await create_and_populate_backend(userlist_processed)
+    await generate_pairings_for_pool_backend(ID)
+    await report_pairings_to_users_backend(ctx, ID)
+       
 @bot.command()
 @lightbulb.command("exit_", "Shut down the bot")
 @lightbulb.implements(lightbulb.SlashCommand)
