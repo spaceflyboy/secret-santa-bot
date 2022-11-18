@@ -1,6 +1,9 @@
 # secret-santa-bot
-Secret Santa Discord Bot written in Python. 
+Secret Santa Discord Bot written in Python with hikari/lightbulb.
 
-._help for list of commands
+Help command not working at the moment but with slash commands you should be able to see all your options anyway.  
 
-only undocumented command is setOutput, which can enable output from certain commands going to more than just the default option of the console which you run the bot from. Available options are "channel", "console", or "both". "channel" and "both" require the bot to be given permissions to send messages in a channel or otherwise the await command that does the send to print to that channel will raise a discord.errors.Forbidden: 403 Missing Permissions Error with an error code I can't remember.
+TODO:
+    Fix wrapper commands
+    Remake help command
+    Standardize and make more strict output in alignment with user provided config setting
